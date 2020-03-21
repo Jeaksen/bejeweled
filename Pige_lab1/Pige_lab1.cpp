@@ -5,6 +5,7 @@
 #include "framework.h"
 #include "Pige_lab1.h"
 #include <string>
+#include <queue>
 
 #define MAX_LOADSTRING 100
 
@@ -17,7 +18,10 @@ const int gridCount[] = { 8, 10, 12 };
 //TODO change sizes
 const int gridSizes[] = { 70, 60, 50 };
 const int MARGIN = 5, HOVER_INCREASE = 4;
-int gameSize = 2;
+int gameSize = 0;
+
+
+
 
 // Forward declarations of functions included in this code module:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
@@ -28,13 +32,13 @@ LRESULT CALLBACK    ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM 
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 void                ResizeWindow(HWND mainHandle);
 void                ChangeGameSize(HWND mainHandle, int size);
+void                ResizeChild(HWND handle, RECT rect, int change);
 BOOL CALLBACK       EnumKillChild(_In_ HWND   hwnd, _In_ LPARAM lParam);
 
 
-int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
-                     _In_opt_ HINSTANCE hPrevInstance,
-                     _In_ LPWSTR    lpCmdLine,
-                     _In_ int       nCmdShow)
+
+
+int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPWSTR lpCmdLine, _In_ int nCmdShow)
 {
     UNREFERENCED_PARAMETER(hPrevInstance);
     UNREFERENCED_PARAMETER(lpCmdLine);
@@ -65,48 +69,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 }
 
 
-ATOM MyRegisterClass(HINSTANCE hInstance)
-{
-    WNDCLASSEXW wcex;
-
-    wcex.cbSize = sizeof(WNDCLASSEX);
-
-    wcex.style          = 0;
-    wcex.lpfnWndProc    = WndProc;
-    wcex.cbClsExtra     = 0;
-    wcex.cbWndExtra     = 0;
-    wcex.hInstance      = hInstance;
-    wcex.hIcon          = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_PIGELAB1));
-    wcex.hCursor        = LoadCursor(nullptr, IDC_ARROW);
-    wcex.hbrBackground  = (HBRUSH)(COLOR_WINDOW+1);
-    wcex.lpszMenuName   = MAKEINTRESOURCEW(IDC_PIGELAB1);
-    wcex.lpszClassName  = szWindowClass;
-    wcex.hIconSm        = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
-
-    return RegisterClassExW(&wcex);
-}
-
-ATOM MyRegisterChildClass(HINSTANCE hInstance)
-{
-    WNDCLASSEXW wcex;
-
-    wcex.cbSize = sizeof(WNDCLASSEX);
-
-    wcex.style = 0;
-    wcex.lpfnWndProc = ChildWndProc;
-    wcex.cbClsExtra = 0;
-    wcex.cbWndExtra = 0;
-    wcex.hInstance = hInstance;
-    wcex.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_PIGELAB1));
-    wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wcex.hbrBackground = (HBRUSH)GetStockObject(DKGRAY_BRUSH);;
-    wcex.lpszMenuName = MAKEINTRESOURCEW(IDC_PIGELAB1);
-    wcex.lpszClassName = L"Grid";
-    wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
-
-    return RegisterClassExW(&wcex);
-}
-
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
     hInst = hInstance; // Store instance handle in our global variable
@@ -120,10 +82,12 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     return TRUE;
 }
 
+
 BOOL CALLBACK EnumKillChild(_In_ HWND   hwnd, _In_ LPARAM lParam)
 {
     return DestroyWindow(hwnd);
 }
+
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -176,6 +140,72 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     return 0;
 }
 
+
+LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    static bool hover = false;
+    switch (message)
+    {
+        case WM_MOUSEMOVE:
+            if (!hover)
+            {
+                hover = true;
+                TRACKMOUSEEVENT trmev;
+                trmev.cbSize = sizeof(TRACKMOUSEEVENT);
+                trmev.dwFlags = TME_LEAVE;
+                trmev.hwndTrack = hWnd;
+                TrackMouseEvent(&trmev);
+                RECT rect;
+
+                GetClientRect(hWnd, &rect);
+                int change = HOVER_INCREASE - (rect.right - rect.left - gridSizes[gameSize]) / 2;
+
+                ResizeChild(hWnd, rect, change);
+            }
+            break;
+        case WM_MOUSELEAVE:
+        {
+            hover = false;
+            TRACKMOUSEEVENT trmev;
+            trmev.cbSize = sizeof(TRACKMOUSEEVENT);
+            trmev.dwFlags = TME_CANCEL | TME_LEAVE;
+            trmev.hwndTrack = hWnd;
+            TrackMouseEvent(&trmev);
+            SetTimer(hWnd, 1, 50, NULL);
+        }
+            break;
+        case WM_TIMER:
+        {
+            RECT rect;
+            GetClientRect(hWnd, &rect);
+            if (rect.right - rect.left == gridSizes[gameSize])
+            {
+                KillTimer(hWnd, 1);
+                break;
+            }
+            ResizeChild(hWnd, rect, -1);
+        }
+        break;
+        case WM_PAINT:
+        {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hWnd, &ps);
+            EndPaint(hWnd, &ps);
+        }
+        break;
+        case WM_DESTROY:
+        {
+            KillTimer(hWnd, 1);
+            hover = false;
+        }
+            break;
+        default:
+            return DefWindowProc(hWnd, message, wParam, lParam);
+    }
+    return 0;
+}
+
+
 void ResizeWindow(HWND mainHandle)
 {
     int maxWidth = GetSystemMetrics(SM_CXSCREEN);
@@ -209,6 +239,7 @@ void ResizeWindow(HWND mainHandle)
     }
 }
 
+
 void ChangeGameSize(HWND mainHandle, int size)
 {
     if (gameSize == size) return;
@@ -216,78 +247,30 @@ void ChangeGameSize(HWND mainHandle, int size)
 
     switch (gameSize)
     {
-        case 0: CheckMenuItem(menu, ID_BOARDSIZE_SMALL, MF_UNCHECKED); break;
-        case 1: CheckMenuItem(menu, ID_BOARDSIZE_MEDIUM, MF_UNCHECKED); break;
-        case 2: CheckMenuItem(menu, ID_BOARDSIZE_BIG, MF_UNCHECKED); break;
+    case 0: CheckMenuItem(menu, ID_BOARDSIZE_SMALL, MF_UNCHECKED); break;
+    case 1: CheckMenuItem(menu, ID_BOARDSIZE_MEDIUM, MF_UNCHECKED); break;
+    case 2: CheckMenuItem(menu, ID_BOARDSIZE_BIG, MF_UNCHECKED); break;
     }
     switch (size)
     {
-        case 0: CheckMenuItem(menu, ID_BOARDSIZE_SMALL, MF_CHECKED); break;
-        case 1: CheckMenuItem(menu, ID_BOARDSIZE_MEDIUM, MF_CHECKED); break;
-        case 2: CheckMenuItem(menu, ID_BOARDSIZE_BIG, MF_CHECKED); break;
+    case 0: CheckMenuItem(menu, ID_BOARDSIZE_SMALL, MF_CHECKED); break;
+    case 1: CheckMenuItem(menu, ID_BOARDSIZE_MEDIUM, MF_CHECKED); break;
+    case 2: CheckMenuItem(menu, ID_BOARDSIZE_BIG, MF_CHECKED); break;
     }
     gameSize = size;
     ResizeWindow(mainHandle);
 }
 
-LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+
+void ResizeChild(HWND handle, RECT rect, int change)
 {
-    static bool hover = false;
-    switch (message)
-    {
-    case WM_MOUSEMOVE:
-        if (!hover)
-        {
-            hover = true;
-            TRACKMOUSEEVENT trmev;
-            trmev.cbSize = sizeof(TRACKMOUSEEVENT);
-            trmev.dwFlags = TME_LEAVE;
-            trmev.hwndTrack = hWnd;
-            TrackMouseEvent(&trmev);
-            RECT rect;
-            GetClientRect(hWnd, &rect);
-            POINT spawn{ rect.left, rect.top };
-            MapWindowPoints(hWnd, GetParent(hWnd), &spawn, 1);
-            InflateRect(&rect, HOVER_INCREASE, HOVER_INCREASE);
-            spawn.x -= HOVER_INCREASE;
-            spawn.y -= HOVER_INCREASE;
-            MoveWindow(hWnd, spawn.x, spawn.y, rect.right - rect.left, rect.bottom - rect.top, TRUE);
-        }
-        break;
-    case WM_MOUSELEAVE:
-    {
-        hover = false;
-        TRACKMOUSEEVENT trmev;
-        trmev.cbSize = sizeof(TRACKMOUSEEVENT);
-        trmev.dwFlags = TME_CANCEL | TME_LEAVE;
-        trmev.hwndTrack = hWnd;
-        TrackMouseEvent(&trmev);
-        RECT rect;
-        GetClientRect(hWnd, &rect);
-        POINT spawn{ rect.left, rect.top };
-        MapWindowPoints(hWnd, GetParent(hWnd), &spawn, 1);
-        InflateRect(&rect, -HOVER_INCREASE, -HOVER_INCREASE);
-        spawn.x += HOVER_INCREASE;
-        spawn.y += HOVER_INCREASE;
-        MoveWindow(hWnd, spawn.x, spawn.y, rect.right - rect.left, rect.bottom - rect.top, TRUE);
-    }
-        break;
-
-    case WM_PAINT:
-    {
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hWnd, &ps);
-        EndPaint(hWnd, &ps);
-    }
-    break;
-    case WM_DESTROY:
-        break;
-    default:
-        return DefWindowProc(hWnd, message, wParam, lParam);
-    }
-    return 0;
+    POINT spawn{ rect.left, rect.top };
+    MapWindowPoints(handle, GetParent(handle), &spawn, 1);
+    InflateRect(&rect, change, change);
+    spawn.x -= change;
+    spawn.y -= change;
+    MoveWindow(handle, spawn.x, spawn.y, rect.right - rect.left, rect.bottom - rect.top, TRUE);
 }
-
 
 
 INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
@@ -307,4 +290,48 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
         break;
     }
     return (INT_PTR)FALSE;
+}
+
+
+ATOM MyRegisterClass(HINSTANCE hInstance)
+{
+    WNDCLASSEXW wcex;
+
+    wcex.cbSize = sizeof(WNDCLASSEX);
+
+    wcex.style = 0;
+    wcex.lpfnWndProc = WndProc;
+    wcex.cbClsExtra = 0;
+    wcex.cbWndExtra = 0;
+    wcex.hInstance = hInstance;
+    wcex.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_PIGELAB1));
+    wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcex.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wcex.lpszMenuName = MAKEINTRESOURCEW(IDC_PIGELAB1);
+    wcex.lpszClassName = szWindowClass;
+    wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
+
+    return RegisterClassExW(&wcex);
+}
+
+
+ATOM MyRegisterChildClass(HINSTANCE hInstance)
+{
+    WNDCLASSEXW wcex;
+
+    wcex.cbSize = sizeof(WNDCLASSEX);
+
+    wcex.style = 0;
+    wcex.lpfnWndProc = ChildWndProc;
+    wcex.cbClsExtra = 0;
+    wcex.cbWndExtra = 0;
+    wcex.hInstance = hInstance;
+    wcex.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_PIGELAB1));
+    wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcex.hbrBackground = (HBRUSH)GetStockObject(DKGRAY_BRUSH);;
+    wcex.lpszMenuName = MAKEINTRESOURCEW(IDC_PIGELAB1);
+    wcex.lpszClassName = L"Grid";
+    wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
+
+    return RegisterClassExW(&wcex);
 }
