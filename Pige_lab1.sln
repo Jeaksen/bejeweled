@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29613.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Pige_lab1", "Pige_lab1\Pige_lab1.vcxproj", "{F8369489-9D68-4F03-8BDF-BF502C7A3755}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F8369489-9D68-4F03-8BDF-BF502C7A3755}.Debug|x64.ActiveCfg = Debug|x64
+		{F8369489-9D68-4F03-8BDF-BF502C7A3755}.Debug|x64.Build.0 = Debug|x64
+		{F8369489-9D68-4F03-8BDF-BF502C7A3755}.Debug|x86.ActiveCfg = Debug|Win32
+		{F8369489-9D68-4F03-8BDF-BF502C7A3755}.Debug|x86.Build.0 = Debug|Win32
+		{F8369489-9D68-4F03-8BDF-BF502C7A3755}.Release|x64.ActiveCfg = Release|x64
+		{F8369489-9D68-4F03-8BDF-BF502C7A3755}.Release|x64.Build.0 = Release|x64
+		{F8369489-9D68-4F03-8BDF-BF502C7A3755}.Release|x86.ActiveCfg = Release|Win32
+		{F8369489-9D68-4F03-8BDF-BF502C7A3755}.Release|x86.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {2241C7AB-7D81-4782-8000-CD59D1B6AAF7}
+	EndGlobalSection
+EndGlobal
