@@ -6,6 +6,7 @@
 #include "Pige_lab1.h"
 #include <string>
 #include <ctime>
+#include <Windows.h>
 
 #define MAX_LOADSTRING 100
 #define MAX_GRID_COUNT 12
@@ -25,20 +26,20 @@ HINSTANCE hInst;                                // current instance
 int nCmdShow;
 WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
 WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
-HWND overlayHandle;
-const COLORREF colours[] = { 0xFFD700, 0x32CD32, 0x0000CD, 0xFF4500, 0x00BFFF, 0xC71585 };
-std::pair<HWND, COLORREF> grid[MAX_GRID_COUNT][MAX_GRID_COUNT]{};
-bool gemsToDestroy[MAX_GRID_COUNT][MAX_GRID_COUNT]{};
-const unsigned int gridCount[] = { 8, 10, 12 }; //stores handles to child windows, their colour and a flag indicating wether the window is empty after 'destroying' the gem
+HWND overlayHandle = NULL;                      // Handle to the overlay with destruction animations
+const COLORREF colours[] = { 0xFFD700, 0x32CD32, 0x0000CD, 0xFF4500, 0x00BFFF, 0xC71585 }; // Coulours of grid elements
+std::pair<HWND, COLORREF> grid[MAX_GRID_COUNT][MAX_GRID_COUNT]{}; // Stores handles to child windows aliged in the grid as on the screen with their background colour
+bool gemsToDestroy[MAX_GRID_COUNT][MAX_GRID_COUNT]{}; // Stores the state whether a given child should be 'destroyed' - background switched to hatch
+const unsigned int gridCount[] = { 8, 10, 12 }; // Stores handles to child windows, their colour and a flag indicating wether the window is empty after 'destroying' the gem
 //TODO change sizes
-const unsigned int gridSizes[] = { 70, 60, 50 }; //posible sizes of elements
-const unsigned int MARGIN = 5; //size of margin
-const unsigned int HOVER_INCREASE = 4;; //size by which windows increase when hovered
+const unsigned int gridSizes[] = { 70, 60, 50 }; // Posible sizes of elements
+const unsigned int MARGIN = 5; // Size of margin
+const unsigned int HOVER_INCREASE = 4;; // Size by which windows increase when hovered
 
-short gameSize = 0; //0 - small, 1 - medium, 2 - big
-bool gameStarted = false; //flag indicating whether the game is in progress
-bool initializingGame = false; //flag indicating whether the game is in statup initalization 
-bool changingGrid = false; //flag indicating whether grid elements are moving
+short gameSize = 0; // Saves current game size: 0 - small, 1 - medium, 2 - big
+bool gameStarted = false; // Flag indicating whether the game is in progress
+bool initializingGame = false; // Flag indicating whether the game is in statup initalization 
+bool changingGrid = false; // Flag indicating whether grid elements are moving
 
 
 // Forward declarations of functions included in this code module:
@@ -74,6 +75,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
     LoadStringW(hInstance, IDC_PIGELAB1, szWindowClass, MAX_LOADSTRING);
     MyRegisterClass(hInstance);
     MyRegisterChildClass(hInstance);
+    MyRegisterOverlayClass(hInstance);
 
     // Perform application initialization:
     if (!InitInstance (hInstance, nCmdShow)) return FALSE;
@@ -97,15 +99,30 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
 
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
+
     hInst = hInstance; // Store instance handle in our global variable
     ::nCmdShow = nCmdShow;
 
-    HWND hWnd = CreateWindowExW(WS_EX_COMPOSITED, szWindowClass, szTitle, WS_OVERLAPPEDWINDOW - WS_MAXIMIZEBOX - WS_THICKFRAME, 0, 0, 0, 0, nullptr, nullptr, hInstance, nullptr);
+    HWND hWnd = CreateWindowExW(WS_EX_COMPOSITED, szWindowClass, szTitle, WS_CLIPCHILDREN | WS_OVERLAPPEDWINDOW - WS_MAXIMIZEBOX - WS_THICKFRAME, 0, 0, 0, 0, nullptr, nullptr, hInstance, nullptr);
     if (!hWnd) return FALSE;
     ResizeWindow(hWnd);
     ShowWindow(hWnd, nCmdShow);
+
+    if (overlayHandle == NULL)
+    {
+        overlayHandle = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TOPMOST, L"Overlay", L"", WS_POPUP | WS_VISIBLE, 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), nullptr, nullptr, hInst, nullptr);
+        if (!overlayHandle)
+        {
+            DWORD s = GetLastError();
+            return FALSE;
+        }
+        SetLayeredWindowAttributes(overlayHandle, 0x000000, 0, LWA_COLORKEY);
+        ShowWindow(overlayHandle, nCmdShow);
+        UpdateWindow(overlayHandle);
+    }
+
+    SetActiveWindow(hWnd);
     UpdateWindow(hWnd);
-    return TRUE;
 }
 
 
@@ -202,6 +219,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         UpdateWindow(hWnd);
         SetTimer(hWnd, TIMER_CHANGE_GRID, 500, 0);
     }
+    case WM_SIZE:
+    {
+        if (wParam == SIZE_MINIMIZED)
+        {
+            ShowWindow(overlayHandle, SW_MINIMIZE);
+        }
+        return DefWindowProc(hWnd, message, wParam, lParam);
+    }
+    //case WM_ACTIVATE:
+    //{
+    //    if ()
+    //}
     case WM_PAINT:
     {
         PAINTSTRUCT ps;
@@ -351,6 +380,8 @@ LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
                 LineTo(hdc, clRect.right, clRect.bottom);
                 LineTo(hdc, clRect.left, clRect.bottom);
                 LineTo(hdc, clRect.left, clRect.top);
+                pen = (HPEN)SelectObject(hdc, oldPen);
+                DeleteObject(pen);
             }
             EndPaint(hWnd, &ps);
             break;
@@ -371,18 +402,41 @@ LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
 LRESULT CALLBACK OverlayWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
-    { 
+    {
     case WM_PAINT:
     {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
-        
+        hdc = GetDC(hWnd);
+        RECT rc;
+        HBRUSH brush, oldbrush;
+
+        brush = (HBRUSH)GetStockObject(DC_BRUSH);
+        oldbrush = (HBRUSH)SelectObject(hdc, brush);
+
+        SetDCBrushColor(hdc, 0x000000);
+        GetWindowRect(hWnd, &rc);
+        FillRect(hdc, &rc, (HBRUSH)GetCurrentObject(hdc, OBJ_BRUSH));
+
+        SetDCBrushColor(hdc, 0xFFFA3D);
+
+        DrawTextW(hdc, L"POINTS", -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+        Rectangle(hdc, 200, 200, 300, 300);
+        brush = (HBRUSH)SelectObject(hdc, oldbrush);
+        DeleteObject(brush);
         EndPaint(hWnd, &ps);
         break;
     }
+    case WM_GETMINMAXINFO: {
+        DefWindowProc(hWnd, message, wParam, lParam);
+        MINMAXINFO* pmmi = (MINMAXINFO*)lParam;
+        pmmi->ptMaxTrackSize.x = 2 * GetSystemMetrics(SM_CXSCREEN);
+        pmmi->ptMaxTrackSize.y = 2 * GetSystemMetrics(SM_CYSCREEN);
+        return 0;
+    }
     case WM_DESTROY:
     {
-        PostQuitMessage(0);
         break;
     }
     default:
@@ -407,6 +461,8 @@ void ResizeWindow(HWND mainHandle)
     int dy = (maxHeight - WindowSize.y) / 2;
 
     MoveWindow(mainHandle, dx, dy, WindowSize.x, WindowSize.y, TRUE);
+
+
     EnumChildWindows(mainHandle, EnumKillChild, NULL);
     UpdateWindow(mainHandle);
     HWND child;
@@ -690,7 +746,7 @@ ATOM MyRegisterOverlayClass(HINSTANCE hInstance)
     wcex.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_PIGELAB1));
     wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wcex.hbrBackground = (HBRUSH)GetStockObject(DKGRAY_BRUSH);
-    wcex.lpszMenuName = MAKEINTRESOURCEW(IDC_PIGELAB1);
+    wcex.lpszMenuName = NULL;
     wcex.lpszClassName = L"Overlay";
     wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
 
