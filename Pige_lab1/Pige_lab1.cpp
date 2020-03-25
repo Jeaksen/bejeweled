@@ -5,13 +5,13 @@
 #include "framework.h"
 #include "Pige_lab1.h"
 #include <string>
-#include <queue>
 #include <ctime>
 
 #define MAX_LOADSTRING 100
 #define MAX_GRID_COUNT 12
-#define TIMER_GAMEINIT 2
 #define TIMER_HOVER 1
+#define TIMER_GAMEINIT 2
+#define TIMER_CHANGE_GRID 3
 
 //enum GameSize
 //{
@@ -25,30 +25,30 @@ HINSTANCE hInst;                                // current instance
 int nCmdShow;
 WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
 WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
-const COLORREF colours[] = { 0xDB7093 , 0x7B68EE, 0xFFE4B5, 0xB22222, 0xBA55D3, 0x800080 };
+HWND overlayHandle;
+const COLORREF colours[] = { 0xFFD700, 0x32CD32, 0x0000CD, 0xFF4500, 0x00BFFF, 0xC71585 };
 std::pair<HWND, COLORREF> grid[MAX_GRID_COUNT][MAX_GRID_COUNT]{};
 bool gemsToDestroy[MAX_GRID_COUNT][MAX_GRID_COUNT]{};
-//stores handles to child windows, their colour and a flag indicating wether the window is empty after 'destroying' the gem
-
-
-//std::tuple <HWND, COLORREF, bool> grid[MAX_GRID_COUNT][MAX_GRID_COUNT]{};
-const unsigned int gridCount[] = { 8, 10, 12 };
+const unsigned int gridCount[] = { 8, 10, 12 }; //stores handles to child windows, their colour and a flag indicating wether the window is empty after 'destroying' the gem
 //TODO change sizes
-const unsigned int gridSizes[] = { 70, 60, 50 };
-const unsigned int MARGIN = 5, HOVER_INCREASE = 4;
+const unsigned int gridSizes[] = { 70, 60, 50 }; //posible sizes of elements
+const unsigned int MARGIN = 5; //size of margin
+const unsigned int HOVER_INCREASE = 4;; //size by which windows increase when hovered
 
-short gameSize = 0;
-bool gameStarted = false;
-bool initializingGame = false;
-bool changingGrid = false;
+short gameSize = 0; //0 - small, 1 - medium, 2 - big
+bool gameStarted = false; //flag indicating whether the game is in progress
+bool initializingGame = false; //flag indicating whether the game is in statup initalization 
+bool changingGrid = false; //flag indicating whether grid elements are moving
 
 
 // Forward declarations of functions included in this code module:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
 ATOM                MyRegisterChildClass(HINSTANCE hInstance);
+ATOM                MyRegisterOverlayClass(HINSTANCE hInstance);
 BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
-LRESULT CALLBACK    ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK    ChildWndProc(HWND , UINT , WPARAM , LPARAM );
+LRESULT CALLBACK    OverlayWndProc(HWND , UINT , WPARAM , LPARAM );
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 void                ResizeWindow(HWND mainHandle);
 void                ChangeGameSize(HWND mainHandle, int size);
@@ -57,6 +57,7 @@ void                InitGame(HWND mainHandle);
 bool                ValidateMove(HWND selectedWindow, HWND validatedWindow);
 bool                AnalyseGrid();
 bool                ShouldDestroyGem(HWND hwnd);
+bool                MoveGrid(HWND hwnd);
 COLORREF            FindColour(HWND hwnd);
 BOOL CALLBACK       EnumKillChild(_In_ HWND   hwnd, _In_ LPARAM lParam);
 
@@ -136,13 +137,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             break;
         }
         case ID_BOARDSIZE_SMALL:
-            if (!initializingGame) ChangeGameSize(hWnd, 0);
+            if (!initializingGame && !changingGrid) ChangeGameSize(hWnd, 0);
             break;
         case ID_BOARDSIZE_MEDIUM:
-            if (!initializingGame) ChangeGameSize(hWnd, 1);
+            if (!initializingGame && !changingGrid) ChangeGameSize(hWnd, 1);
             break;
         case ID_BOARDSIZE_BIG:
-            if (!initializingGame) ChangeGameSize(hWnd, 2);
+            if (!initializingGame && !changingGrid) ChangeGameSize(hWnd, 2);
             break;
         default:
             return DefWindowProc(hWnd, message, wParam, lParam);
@@ -171,17 +172,50 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 count++;
             }
         }
+        if (wParam == TIMER_CHANGE_GRID)
+        {
+            if (!MoveGrid(hWnd))
+            {
+                KillTimer(hWnd, TIMER_CHANGE_GRID);
+                SendMessage(hWnd, WM_APP, 1, 0);
+                break;
+            }
+            InvalidateRect(hWnd, NULL, TRUE);
+            UpdateWindow(hWnd);
+        }
         break;
     }
     case WM_APP:
     {
-        if (!AnalyseGrid()) break;
+        if (!AnalyseGrid())
+        {
+            if (wParam == 1)
+            {
+                changingGrid = false;
+                InvalidateRect(hWnd, NULL, TRUE);
+                UpdateWindow(hWnd);
+            }
+            break;
+        }
+        changingGrid = true;
         InvalidateRect(hWnd, NULL, TRUE);
+        UpdateWindow(hWnd);
+        SetTimer(hWnd, TIMER_CHANGE_GRID, 500, 0);
     }
     case WM_PAINT:
     {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
+        if (changingGrid)
+        {
+            HBRUSH brush = (HBRUSH)GetStockObject(GRAY_BRUSH);
+            HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, brush);
+            RECT clRect;
+            GetClientRect(hWnd, &clRect);
+            FillRect(hdc, &clRect, brush);
+            brush = (HBRUSH)SelectObject(hdc, oldBrush);
+            DeleteObject(brush);
+        }
         EndPaint(hWnd, &ps);
     }
     break;
@@ -236,7 +270,7 @@ LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
         }
         case WM_LBUTTONDOWN:
         {
-            if (initializingGame || !gameStarted) break;
+            if (initializingGame || !gameStarted || changingGrid) break;
             if (!selected)
             {
                 selected = true;
@@ -334,6 +368,30 @@ LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
 }
 
 
+LRESULT CALLBACK OverlayWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    switch (message)
+    { 
+    case WM_PAINT:
+    {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hWnd, &ps);
+        
+        EndPaint(hWnd, &ps);
+        break;
+    }
+    case WM_DESTROY:
+    {
+        PostQuitMessage(0);
+        break;
+    }
+    default:
+        return DefWindowProc(hWnd, message, wParam, lParam);
+    }
+    return 0;
+}
+
+
 void ResizeWindow(HWND mainHandle)
 {
     gameStarted = initializingGame = false;
@@ -406,7 +464,7 @@ void ResizeChild(HWND handle, RECT rect, int change)
 
 void InitGame(HWND mainHandle)
 {
-    if (initializingGame) return;
+    if (initializingGame || changingGrid) return;
     for (size_t i = 0; i < gridCount[gameSize]; i++)
     {
         for (size_t j = 0; j < gridCount[gameSize]; j++)
@@ -521,6 +579,27 @@ bool ShouldDestroyGem(HWND hwnd)
 }
 
 
+bool MoveGrid(HWND hwnd)
+{
+    bool foundAny = false;
+
+    for (int i = 0; i < gridCount[gameSize]; i++)
+    {
+        int j = 0;
+        for (; j < gridCount[gameSize] && !gemsToDestroy[j][i]; j++);
+        if (j == gridCount[gameSize]) continue;
+        foundAny = true;
+        gemsToDestroy[j][i] = false;
+        for (; j > 0; j--)
+        {
+            grid[j][i].second = grid[j - 1][i].second;
+        }
+        grid[0][i].second = colours[rand() % (sizeof(colours) / sizeof(COLORREF))];
+    }
+    return foundAny;
+}
+
+
 COLORREF FindColour(HWND hwnd)
 {
     for (size_t i = 0; i < gridCount[gameSize]; i++)
@@ -592,6 +671,27 @@ ATOM MyRegisterChildClass(HINSTANCE hInstance)
     wcex.hbrBackground = (HBRUSH)GetStockObject(DKGRAY_BRUSH);
     wcex.lpszMenuName = MAKEINTRESOURCEW(IDC_PIGELAB1);
     wcex.lpszClassName = L"Grid";
+    wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
+
+    return RegisterClassExW(&wcex);
+}
+
+
+ATOM MyRegisterOverlayClass(HINSTANCE hInstance)
+{
+    WNDCLASSEXW wcex;
+    wcex.cbSize = sizeof(WNDCLASSEX);
+
+    wcex.style = 0;
+    wcex.lpfnWndProc = OverlayWndProc;
+    wcex.cbClsExtra = 0;
+    wcex.cbWndExtra = 0;
+    wcex.hInstance = hInstance;
+    wcex.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_PIGELAB1));
+    wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcex.hbrBackground = (HBRUSH)GetStockObject(DKGRAY_BRUSH);
+    wcex.lpszMenuName = MAKEINTRESOURCEW(IDC_PIGELAB1);
+    wcex.lpszClassName = L"Overlay";
     wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
 
     return RegisterClassExW(&wcex);
