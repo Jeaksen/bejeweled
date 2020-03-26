@@ -1,6 +1,3 @@
-// Pige_lab1.cpp : Defines the entry point for the application.
-//
-
 #include "pch.h"
 #include "framework.h"
 #include "Pige_lab1.h"
@@ -21,13 +18,7 @@
 #define INTERVAL_TIMER_CHANGE_GRID 500
 #define INTERVAL_TIMER_PARTICLES 20
 
-
-//enum GameSize
-//{
-//    Small, Medium, Big
-//};
-//GameSize gameSize = GameSize::Small;
-
+// Struct for stoting data of a destruction particle 
 typedef struct
 {
     POINT position;
@@ -35,6 +26,14 @@ typedef struct
     COLORREF colour;
 } Particle;
 
+// Global Constants
+
+const unsigned int gridCount[] = { 8, 10, 12 }; // Stores handles to child windows, their colour and a flag indicating wether the window is empty after 'destroying' the gem
+const unsigned int gridSizes[] = { 70, 60, 50 }; // Posible sizes of elements
+const unsigned int MARGIN = 5; // Size of margin
+const unsigned int HOVER_INCREASE = 4; // Size by which windows increase when hovered
+const unsigned int PARTICLE_MOVE_DISTANCE = 20; // distance by which the particles move on every tick of the animation clock
+const unsigned int PARTICLES_COUNT = 100; // defines the number of particles which spawn from one 'destroed' grid element
 
 // Global Variables:
 HINSTANCE hInst;                                // current instance
@@ -42,46 +41,55 @@ int nCmdShow;
 WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
 WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
 HWND overlayHandle = NULL;                      // Handle to the overlay with destruction animations
+
 const COLORREF colours[] = { 0xFFD700, 0x32CD32, 0x0000CD, 0xFF4500, 0x00BFFF, 0xC71585 }; // Coulours of grid elements
 std::pair<HWND, COLORREF> grid[MAX_GRID_COUNT][MAX_GRID_COUNT]{}; // Stores handles to child windows aliged in the grid as on the screen with their background colour
 bool gemsToDestroy[MAX_GRID_COUNT][MAX_GRID_COUNT]{}; // Stores the state whether a given child should be 'destroyed' - background switched to hatch
-const unsigned int gridCount[] = { 8, 10, 12 }; // Stores handles to child windows, their colour and a flag indicating wether the window is empty after 'destroying' the gem
-//TODO change sizes
-const unsigned int gridSizes[] = { 70, 60, 50 }; // Posible sizes of elements
-const unsigned int MARGIN = 5; // Size of margin
-const unsigned int HOVER_INCREASE = 4; // Size by which windows increase when hovered
-const unsigned int PARTICLE_MOVE_DISTANCE = 10;
-const unsigned int PARTICLES_COUNT = 100;
 
 
 short gameSize = 0; // Saves current game size: 0 - small, 1 - medium, 2 - big
 bool gameStarted = false; // Flag indicating whether the game is in progress
 bool initializingGame = false; // Flag indicating whether the game is in statup initalization 
 bool changingGrid = false; // Flag indicating whether grid elements are moving
-int particleSize;
-std::vector<Particle> particles;
+bool debug = false; // Flag indicating whether the debug mode is tuned on
+int particleSize; // stroes the size of destruction animation particle
+std::vector<Particle> particles; //vector which stores information about the position, velocity and colour of each particle
 
 
 // Forward declarations of functions included in this code module:
+
 ATOM                MyRegisterClass(HINSTANCE hInstance);
 ATOM                MyRegisterChildClass(HINSTANCE hInstance);
 ATOM                MyRegisterOverlayClass(HINSTANCE hInstance);
+// Creates the main window and overlay window
 BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    ChildWndProc(HWND , UINT , WPARAM , LPARAM );
 LRESULT CALLBACK    OverlayWndProc(HWND , UINT , WPARAM , LPARAM );
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
+// Resizes the window after changing the game size and initializes/resets requried properties
 void                ResizeWindow(HWND mainHandle);
+// Changes the variable storing the game size and the menu for choosing game size
 void                ChangeGameSize(HWND mainHandle, int size);
+// Increases the size of a grid element by _change_ to each side (effective increase of 2 x change)
 void                ResizeChild(HWND handle, RECT rect, int change);
+// Called when a new game is started, resets all needed game varaibles and starts initialization timer
 void                InitGame(HWND mainHandle);
+// Checks if player can swap the two grid elements
 bool                ValidateMove(HWND selectedWindow, HWND validatedWindow);
+// Sets the state of gemsToDestory matrix and return a bool indicating whether any gems should be 'destroyed'
 bool                AnalyseGrid();
+// Checks the value in gemsToDestory for a given grid element
 bool                ShouldDestroyGem(HWND hwnd);
+// Moves grid elements down in columns in which grid elements were 'drestoyed', return a flag indicating whether the grid was moved
 bool                MoveGrid(HWND hwnd);
+// Adds to the particles vector new particles for each 'destoryed' grid element
 void                GenerateParticles(HWND mainHandle);
+// Removes all particles which are not in the screen region
 void                RemoveParticles();
+// Returns a colour of a grid element
 COLORREF            FindColour(HWND hwnd);
+// Used for changing the game size, destroyes a grid element
 BOOL CALLBACK       EnumKillChild(_In_ HWND   hwnd, _In_ LPARAM lParam);
 
 
@@ -104,7 +112,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
 
     HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_PIGELAB1));
     MSG msg;
-
+    
     // Main message loop:
     while (GetMessage(&msg, nullptr, 0, 0))
     {
@@ -175,6 +183,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             InitGame(hWnd);
             break;
         }
+        case ID_HELP_DEBUG:
+        {
+            HMENU menu = GetMenu(hWnd);
+            if (debug) CheckMenuItem(menu, ID_HELP_DEBUG, MF_UNCHECKED);
+            else CheckMenuItem(menu, ID_HELP_DEBUG, MF_CHECKED);
+            debug = !debug;
+            InvalidateRect(overlayHandle, NULL, TRUE);
+            UpdateWindow(overlayHandle);
+            break;
+        }
         case ID_BOARDSIZE_SMALL:
             if (!initializingGame && !changingGrid) ChangeGameSize(hWnd, 0);
             break;
@@ -194,6 +212,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         static int count = 0;
         if (wParam == TIMER_GAMEINIT)
         {
+            // Creates the animation for game initialization
+            // At each tick of the timer chooses a rand colour for the next grid element and displays it
+            // once all grid elements were coloured kills the timer
             if (initializingGame && count == pow(gridCount[gameSize], 2))
             {
                 initializingGame = false;
@@ -213,21 +234,34 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         if (wParam == TIMER_CHANGE_GRID)
         {
+            // Calls the MoveGrid functions as log as there are any moves to be made, then kills the timer
             if (!MoveGrid(hWnd))
             {
                 KillTimer(hWnd, TIMER_CHANGE_GRID);
                 SendMessage(hWnd, WM_APP, 1, 0);
                 break;
             }
-            //InvalidateRect(hWnd, NULL, TRUE);
-            //UpdateWindow(hWnd);
         }
         break;
     }
+    case WM_SIZE:
+    {
+        // minimizes and restores the particle overlay with the main window
+        if (wParam == SIZE_RESTORED)
+        {
+            ShowWindow(overlayHandle, SW_RESTORE);
+        }
+        if (wParam == SIZE_MINIMIZED)
+            ShowWindow(overlayHandle, SW_MINIMIZE);
+        return DefWindowProc(hWnd, message, wParam, lParam);
+    }
+    // this message is used to transfer information that some elements should be 'destroyed' and the grid moved
+    // wParam set to 1 incidates than the call is recursive, and it's done to check whether after the previous movement of grid there are new elemetns to 'destroy'
     case WM_APP:
     {
         if (!AnalyseGrid())
         {
+            // the main window has to be redrawn to change the colour indicating that no moves can be made
             if (wParam == 1)
             {
                 changingGrid = false;
@@ -237,18 +271,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             break;
         }
         changingGrid = true;
+        // New particles are generated and the timer for particles is started
         GenerateParticles(hWnd);
         SetTimer(overlayHandle, TIMER_PARTICLES, INTERVAL_TIMER_PARTICLES, NULL);
+        // Main window is redraw to change the background coulour indicating that no moves can be made
         InvalidateRect(hWnd, NULL, TRUE);
         UpdateWindow(hWnd);
+        // Timer for grid movement is started
         SetTimer(hWnd, TIMER_CHANGE_GRID, INTERVAL_TIMER_CHANGE_GRID, 0);
         break;
-    }
-    case WM_SIZE:
-    {
-        if (wParam == SIZE_MINIMIZED)
-            ShowWindow(overlayHandle, SW_MINIMIZE);
-        return DefWindowProc(hWnd, message, wParam, lParam);
     }
     case WM_PAINT:
     {
@@ -279,9 +310,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-    static bool hover = false;
-    static bool selected = false;
-    static HWND selectedWindowHwnd = NULL;
+    static bool hover = false; // flag indicating whether any grid element is current hovered
+    static bool selected = false; // flag indicating whether any grid element is current selected and has a boarder
+    static HWND selectedWindowHwnd = NULL; // handle to a grid element which is selected
     switch (message)
     {
         //when mouse enters the region of a sqare tracking of leave is triggered and the client rectangle is increase b HOVER_INCREASE
@@ -318,7 +349,10 @@ LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
         }
         case WM_LBUTTONDOWN:
         {
+            // Handles selecting grid elements
+            // selecting is invalid in those scenarios
             if (initializingGame || !gameStarted || changingGrid) break;
+            // if no other element is selected then select it and update to draw a border
             if (!selected)
             {
                 selected = true;
@@ -326,6 +360,7 @@ LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
                 InvalidateRect(hWnd, NULL, TRUE);
                 UpdateWindow(hWnd);
             }
+            // if a window which was selected is selected again then mark it as not selected and update to remove the border
             else if (hWnd == selectedWindowHwnd)
             {
                 selected = false;
@@ -333,15 +368,17 @@ LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
                 InvalidateRect(hWnd, NULL, TRUE);
                 UpdateWindow(hWnd);
             }
+            // when a element is selected and the user clicks on a different element
             else 
             {
+                // if the two elements can be swapped start the procedure of moving them 
                 if (ValidateMove(selectedWindowHwnd, hWnd))
                 {
                     SendMessage(GetParent(hWnd), WM_APP, 0, 0);
-                    InvalidateRect(hWnd, NULL, TRUE);
-                    UpdateWindow(hWnd);
+                    //InvalidateRect(hWnd, NULL, TRUE);
+                    //UpdateWindow(hWnd);
                 }
-
+                // regardless of the valid move of the move the selection should be removed and element updatede to remove the border
                 HWND temp = selectedWindowHwnd;
                 selected = false;
                 selectedWindowHwnd = NULL;
@@ -353,6 +390,8 @@ LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
         //for timer id TIMER_HOVER decreases the size of the square as long as it's bigger than the default one, then kills the timer
         case WM_TIMER:
         {
+            // After a grid element was increased by hovering and the mouse is no longer on it, it decreases with every tick of the timer
+            // once the size goes back to standart the timer is killed 
             if (wParam == TIMER_HOVER)
             {
                 RECT rect;
@@ -366,12 +405,6 @@ LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
             }
             break;
         }
-        case WM_ERASEBKGND:
-        {
-            if (changingGrid && !ShouldDestroyGem(hWnd)) break;
-            return DefWindowProc(hWnd, message, wParam, lParam);
-            break;
-        }
         case WM_PAINT:
             {
             PAINTSTRUCT ps;
@@ -379,6 +412,7 @@ LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
             COLORREF colour = FindColour(hWnd);
             HBRUSH brush;
 
+            // if the game hasn't started yet the defaoult dark gray brush is selected
             if (!gameStarted || colour == NULL)
             {
                 brush = (HBRUSH)GetStockObject(DKGRAY_BRUSH);
@@ -390,12 +424,15 @@ LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
                 else
                     brush = CreateSolidBrush(colour);
             }
+
             RECT clRect;
             GetClientRect(hWnd, &clRect);
             HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, brush);
             FillRect(hdc, &clRect, brush);
             brush = (HBRUSH)SelectObject(hdc, oldBrush);
             DeleteObject(brush);
+
+            // Drawing the selection border
             if (selected && selectedWindowHwnd == hWnd)
             {
                 HPEN pen = CreatePen(PS_SOLID, 2 * MARGIN, 0x0);
@@ -431,6 +468,7 @@ LRESULT CALLBACK OverlayWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
     {
     case WM_TIMER:
     {
+        // Redraws the particles at each tick of the clock and removes the ones which should no longer be printed
         if (wParam == TIMER_PARTICLES)
         {
             if (particles.size() == 0)
@@ -438,7 +476,6 @@ LRESULT CALLBACK OverlayWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
             RemoveParticles();
             InvalidateRect(overlayHandle, NULL, FALSE);
             UpdateWindow(overlayHandle);
-            //particles.pop_back();
         }
         break;
     }
@@ -461,9 +498,20 @@ LRESULT CALLBACK OverlayWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
         SetDCBrushColor(cHdc, 0x000000);
         FillRect(cHdc, &rc, (HBRUSH)GetCurrentObject(cHdc, OBJ_BRUSH));
 
-        std::wstring text{ L"Particles:" };
-        text += std::to_wstring(particles.size());
-        DrawTextW(cHdc, text.c_str(), -1, &rc, DT_CENTER | DT_SINGLELINE);
+        if (debug)
+        {
+            HFONT font = CreateFontW(100, 0, 0, 0, 700, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, TEXT("Times New Roman") );
+            HFONT oldfont = (HFONT)SelectObject(cHdc, font);
+
+            std::wstring text{ L"Particles:" };
+            text += std::to_wstring(particles.size());
+            SetBkColor(cHdc, 0x000000);
+            SetTextColor(cHdc, 0x0000FF);
+            DrawTextW(cHdc, text.c_str(), -1, &rc, DT_CENTER | DT_SINGLELINE);
+
+            font = (HFONT)SelectObject(cHdc, font);
+            DeleteObject(font);
+        }
 
         COLORREF prevColour{ 0 };
         for (auto& particle : particles)
@@ -512,28 +560,31 @@ LRESULT CALLBACK OverlayWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
 
 void ResizeWindow(HWND mainHandle)
 {
-    gameStarted = initializingGame = false;
+    // Reset params of the game
+    gameStarted = initializingGame = changingGrid = false;
     //particleSize = gridSizes[gameSize] / pow(PARTICLES_COUNT, 0.5);
     particleSize = 8;
     particles.clear();
-    int maxWidth = GetSystemMetrics(SM_CXSCREEN);
-    int maxHeight = GetSystemMetrics(SM_CYSCREEN);
+
+    // Set the size of the main window to store all grid elements + menu
     int size = gridCount[gameSize] * (gridSizes[gameSize] + 2 * MARGIN);
     RECT windowRec{ 0, 0, size, size };
-
     AdjustWindowRect(&windowRec, WS_OVERLAPPEDWINDOW, true);
     POINT WindowSize{ windowRec.right - windowRec.left, windowRec.bottom - windowRec.top };
 
+    //window is centered on the screen
+    int maxWidth = GetSystemMetrics(SM_CXSCREEN);
+    int maxHeight = GetSystemMetrics(SM_CYSCREEN);
     int dx = (maxWidth - WindowSize.x) / 2;
     int dy = (maxHeight - WindowSize.y) / 2;
 
-    MoveWindow(mainHandle, dx, dy, WindowSize.x, WindowSize.y, TRUE);
-
-
+    //Remove all children windows (if present) and then redraw the main window for the specific size
     EnumChildWindows(mainHandle, EnumKillChild, NULL);
+    MoveWindow(mainHandle, dx, dy, WindowSize.x, WindowSize.y, TRUE);
     UpdateWindow(mainHandle);
+
     HWND child;
-    srand((unsigned int)time(NULL));
+    srand(time(NULL));
     int x = MARGIN, y = MARGIN;
     for (size_t i = 0; i < gridCount[gameSize]; i++)
     {
@@ -541,8 +592,8 @@ void ResizeWindow(HWND mainHandle)
         {
             child = CreateWindowW(L"Grid", L"", WS_CHILD | WS_VISIBLE, x, y, gridSizes[gameSize], gridSizes[gameSize], mainHandle, nullptr, hInst, nullptr);
             ShowWindow(child, nCmdShow);
-            UpdateWindow(child);
             x += gridSizes[gameSize] + 10;
+            // the coulour at start is NULL
             grid[i][j] = std::make_pair(child, NULL);
             gemsToDestroy[i][j] = false;
         }
@@ -579,6 +630,7 @@ void ResizeChild(HWND handle, RECT rect, int change)
     POINT spawn{ rect.left, rect.top };
     MapWindowPoints(handle, GetParent(handle), &spawn, 1);
     InflateRect(&rect, change, change);
+    //move the rectangle to preserve the symmetry
     spawn.x -= change;
     spawn.y -= change;
     MoveWindow(handle, spawn.x, spawn.y, rect.right - rect.left, rect.bottom - rect.top, TRUE);
@@ -594,9 +646,9 @@ void InitGame(HWND mainHandle)
         {
             grid[i][j].second = NULL;
             gemsToDestroy[i][j] = false;
-            InvalidateRect(mainHandle, NULL, TRUE);
         }
     }
+    InvalidateRect(mainHandle, NULL, TRUE);
     SetTimer(mainHandle, TIMER_GAMEINIT, INTERVAL_TIMER_GAMEINIT, NULL);
     gameStarted = initializingGame  = true;
 }
@@ -605,6 +657,7 @@ void InitGame(HWND mainHandle)
 bool ValidateMove(HWND selectedWindow, HWND validatedWindow)
 {
     POINT selectedCoord{-1, -1}, validatedCoord{-1, -1};
+    // Finds the postions of elements
     for (int i = 0; i < gridCount[gameSize]; i++)
         for (int j = 0; j < gridCount[gameSize]; j++)
         {
@@ -613,6 +666,7 @@ bool ValidateMove(HWND selectedWindow, HWND validatedWindow)
             if (grid[i][j].first == validatedWindow)
                 validatedCoord = POINT{ i ,j };
         }
+
     //elements are not next to each other in the same column/row
     if (abs(selectedCoord.x - validatedCoord.x) + abs(selectedCoord.y - validatedCoord.y) != 1) return false;
     int countVertical = 0, countHorizontal = 0;
@@ -706,13 +760,19 @@ bool MoveGrid(HWND hwnd)
 {
     bool foundAny = false;
 
+    
     for (int i = 0; i < gridCount[gameSize]; i++)
     {
         int j = 0;
+        //for each column finds the first grid element which was 'destroyed'
         for (; j < gridCount[gameSize] && !gemsToDestroy[j][i]; j++);
+        //if there was none continues
         if (j == gridCount[gameSize]) continue;
         foundAny = true;
+        // resets the flag for the found grid element
         gemsToDestroy[j][i] = false;
+        // swaps the colours of elements one by one from bottom to top, and randomly chooses a colour for the top most element
+        // only the elements for which the colour was changed are reprinted
         for (; j > 0; j--)
         {
             grid[j][i].second = grid[j - 1][i].second;
@@ -726,7 +786,7 @@ bool MoveGrid(HWND hwnd)
     return foundAny;
 }
 
-
+// returns the position of the left-top edge of a grid element in the main window client coordinates
 POINT GetElementPosition(int idx, int idy)
 {
     int x, y;
@@ -745,16 +805,18 @@ void GenerateParticles(HWND mainHandle)
         {
             if (gemsToDestroy[i][j])
             {
+                //finds the position and translates it to screen coord
                 POINT elmPos = GetElementPosition(i, j);
                 MapWindowPoints(mainHandle, overlayHandle, &elmPos, 1);
+                //spawns PARTICLE_COUNT particles in the place of an grid element
                 for (int k = 0; k < pow(PARTICLES_COUNT, 0.5); k++)
                 {
                     for (int l = 0; l < pow(PARTICLES_COUNT, 0.5); l++)
                     {
-                        //double x =  1 - ((double)rand()) / RAND_MAX * 2;
-                        //double y = pow(1 - pow(x, 2), 0.5);
+                        // the direction depends on the position of the particle + random factor
                         double x = -1 + 2 * (l / (double)gridCount[gameSize]) - (0.5 / RAND_FACTOR) + rand() / (double)(RAND_FACTOR * RAND_MAX);
                         double y = -1 + 2 * (k / (double)gridCount[gameSize]) - (0.5 / RAND_FACTOR) + rand() / (double)(RAND_FACTOR * RAND_MAX);
+                        // then it's normalized for the vector to have a lenght of one
                         double lenght = pow(pow(x, 2) + pow(y, 2), 0.5);
                         x /= lenght;
                         y /= lenght;
