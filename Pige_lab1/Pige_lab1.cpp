@@ -11,13 +11,14 @@
 
 #define MAX_LOADSTRING 100
 #define MAX_GRID_COUNT 12
+#define RAND_FACTOR 4
 #define TIMER_HOVER 1
-#define INTERVAL_TIMER_HOVER 50
 #define TIMER_GAMEINIT 2
-#define INTERVAL_TIMER_GAMEINIT 50
 #define TIMER_CHANGE_GRID 3
-#define INTERVAL_TIMER_CHANGE_GRID 500
 #define TIMER_PARTICLES 4
+#define INTERVAL_TIMER_HOVER 50
+#define INTERVAL_TIMER_GAMEINIT 30
+#define INTERVAL_TIMER_CHANGE_GRID 500
 #define INTERVAL_TIMER_PARTICLES 20
 
 
@@ -124,7 +125,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     hInst = hInstance; // Store instance handle in our global variable
     ::nCmdShow = nCmdShow;
 
-    HWND hWnd = CreateWindowExW(WS_EX_COMPOSITED, szWindowClass, szTitle, WS_CLIPCHILDREN | WS_OVERLAPPEDWINDOW - WS_MAXIMIZEBOX - WS_THICKFRAME, 0, 0, 0, 0, nullptr, nullptr, hInstance, nullptr);
+    HWND hWnd = CreateWindowExW(WS_EX_COMPOSITED, szWindowClass, szTitle, WS_CLIPCHILDREN | (WS_OVERLAPPEDWINDOW - WS_MAXIMIZEBOX - WS_THICKFRAME), 0, 0, 0, 0, nullptr, nullptr, hInstance, nullptr);
     if (!hWnd) return FALSE;
     ResizeWindow(hWnd);
     ShowWindow(hWnd, nCmdShow);
@@ -218,8 +219,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 SendMessage(hWnd, WM_APP, 1, 0);
                 break;
             }
-            InvalidateRect(hWnd, NULL, TRUE);
-            UpdateWindow(hWnd);
+            //InvalidateRect(hWnd, NULL, TRUE);
+            //UpdateWindow(hWnd);
         }
         break;
     }
@@ -246,15 +247,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_SIZE:
     {
         if (wParam == SIZE_MINIMIZED)
-        {
             ShowWindow(overlayHandle, SW_MINIMIZE);
-        }
         return DefWindowProc(hWnd, message, wParam, lParam);
     }
-    //case WM_ACTIVATE:
-    //{
-    //    if ()
-    //}
     case WM_PAINT:
     {
         PAINTSTRUCT ps;
@@ -371,13 +366,19 @@ LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
             }
             break;
         }
+        case WM_ERASEBKGND:
+        {
+            if (changingGrid && !ShouldDestroyGem(hWnd)) break;
+            return DefWindowProc(hWnd, message, wParam, lParam);
+            break;
+        }
         case WM_PAINT:
             {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hWnd, &ps);
             COLORREF colour = FindColour(hWnd);
             HBRUSH brush;
-            
+
             if (!gameStarted || colour == NULL)
             {
                 brush = (HBRUSH)GetStockObject(DKGRAY_BRUSH);
@@ -386,18 +387,18 @@ LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
             {
                 if (ShouldDestroyGem(hWnd))
                     brush = CreateHatchBrush(HS_CROSS, colour);
-                else 
+                else
                     brush = CreateSolidBrush(colour);
             }
             RECT clRect;
             GetClientRect(hWnd, &clRect);
-            HBRUSH oldBrush = (HBRUSH) SelectObject(hdc, brush);
-            FillRect(hdc,&clRect , brush);
+            HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, brush);
+            FillRect(hdc, &clRect, brush);
             brush = (HBRUSH)SelectObject(hdc, oldBrush);
-            if (!gameStarted || colour == NULL) DeleteObject(brush);
+            DeleteObject(brush);
             if (selected && selectedWindowHwnd == hWnd)
             {
-                HPEN pen = CreatePen(PS_SOLID, 2*MARGIN, 0x0);
+                HPEN pen = CreatePen(PS_SOLID, 2 * MARGIN, 0x0);
                 HPEN oldPen = (HPEN)SelectObject(hdc, pen);
                 MoveToEx(hdc, 0, 0, NULL);
                 LineTo(hdc, clRect.right, clRect.top);
@@ -407,6 +408,7 @@ LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
                 pen = (HPEN)SelectObject(hdc, oldPen);
                 DeleteObject(pen);
             }
+
             EndPaint(hWnd, &ps);
             break;
             }
@@ -443,31 +445,49 @@ LRESULT CALLBACK OverlayWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
     case WM_PAINT:
     {
         PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hWnd, &ps);
         RECT rc;
         HBRUSH brush, oldbrush;
+        HBITMAP cBmp, oldBmp;
+        HDC hdc = BeginPaint(hWnd, &ps);
+        HDC cHdc = CreateCompatibleDC(hdc);
 
+        cBmp = CreateCompatibleBitmap(hdc, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+        oldBmp = (HBITMAP)SelectObject(cHdc, cBmp);
 
         brush = (HBRUSH)GetStockObject(DC_BRUSH);
-        oldbrush = (HBRUSH)SelectObject(hdc, brush);
+        oldbrush = (HBRUSH)SelectObject(cHdc, brush);
 
         GetWindowRect(hWnd, &rc);
-        SetDCBrushColor(hdc, 0x000000);
-        FillRect(hdc, &rc, (HBRUSH)GetCurrentObject(hdc, OBJ_BRUSH));
+        SetDCBrushColor(cHdc, 0x000000);
+        FillRect(cHdc, &rc, (HBRUSH)GetCurrentObject(cHdc, OBJ_BRUSH));
 
-        std::wstring text{L"Particles:"};
+        std::wstring text{ L"Particles:" };
         text += std::to_wstring(particles.size());
-        DrawTextW(hdc, text.c_str(), -1, &rc, DT_CENTER | DT_SINGLELINE);
+        DrawTextW(cHdc, text.c_str(), -1, &rc, DT_CENTER | DT_SINGLELINE);
+
+        COLORREF prevColour{ 0 };
         for (auto& particle : particles)
         {
-            SetDCBrushColor(hdc, particle.colour);
+            /*if (particle.colour != prevColour) SetDCBrushColor(cHdc, particle.colour);
             particle.position.x += PARTICLE_MOVE_DISTANCE * particle.direction.first;
             particle.position.y += PARTICLE_MOVE_DISTANCE * particle.direction.second;
-            Rectangle(hdc, particle.position.x, particle.position.y, particle.position.x + particleSize, particle.position.y + particleSize);
+            Rectangle(cHdc, particle.position.x, particle.position.y, particle.position.x + particleSize, particle.position.y + particleSize);*/
+            particle.position.x += PARTICLE_MOVE_DISTANCE * particle.direction.first;
+            particle.position.y += PARTICLE_MOVE_DISTANCE * particle.direction.second;
+            SetDCBrushColor(cHdc, 0xC0C0C0);
+            int size = 2;
+            Rectangle(cHdc, particle.position.x - size, particle.position.y - size, particle.position.x + particleSize + size, particle.position.y + particleSize + size);
+            SetDCBrushColor(cHdc, particle.colour);
+            Rectangle(cHdc, particle.position.x, particle.position.y, particle.position.x + particleSize, particle.position.y + particleSize);
+
         }
 
-        brush = (HBRUSH)SelectObject(hdc, oldbrush);
+        BitBlt(hdc, 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), cHdc, 0, 0, SRCCOPY);
+        brush = (HBRUSH)SelectObject(cHdc, oldbrush);
+        cBmp = (HBITMAP)SelectObject(cHdc, oldBmp);
         DeleteObject(brush);
+        DeleteObject(cBmp);
+        DeleteDC(cHdc);
 
         EndPaint(hWnd, &ps);
         break;
@@ -494,7 +514,7 @@ void ResizeWindow(HWND mainHandle)
 {
     gameStarted = initializingGame = false;
     //particleSize = gridSizes[gameSize] / pow(PARTICLES_COUNT, 0.5);
-    particleSize = 10;
+    particleSize = 8;
     particles.clear();
     int maxWidth = GetSystemMetrics(SM_CXSCREEN);
     int maxHeight = GetSystemMetrics(SM_CYSCREEN);
@@ -696,8 +716,12 @@ bool MoveGrid(HWND hwnd)
         for (; j > 0; j--)
         {
             grid[j][i].second = grid[j - 1][i].second;
+            InvalidateRect(grid[j][i].first, NULL, TRUE);
+            UpdateWindow(grid[j][i].first);
         }
         grid[0][i].second = colours[rand() % (sizeof(colours) / sizeof(COLORREF))];
+        InvalidateRect(grid[0][i].first, NULL, TRUE);
+        UpdateWindow(grid[0][i].first);
     }
     return foundAny;
 }
@@ -729,8 +753,11 @@ void GenerateParticles(HWND mainHandle)
                     {
                         //double x =  1 - ((double)rand()) / RAND_MAX * 2;
                         //double y = pow(1 - pow(x, 2), 0.5);
-                        double x = 1;
-                        double y = 0;
+                        double x = -1 + 2 * (l / (double)gridCount[gameSize]) - (0.5 / RAND_FACTOR) + rand() / (double)(RAND_FACTOR * RAND_MAX);
+                        double y = -1 + 2 * (k / (double)gridCount[gameSize]) - (0.5 / RAND_FACTOR) + rand() / (double)(RAND_FACTOR * RAND_MAX);
+                        double lenght = pow(pow(x, 2) + pow(y, 2), 0.5);
+                        x /= lenght;
+                        y /= lenght;
                         particles.push_back(Particle
                             {
                                 POINT{elmPos.x + l * particleSize, elmPos.y + k * particleSize},
