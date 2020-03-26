@@ -6,19 +6,33 @@
 #include "Pige_lab1.h"
 #include <string>
 #include <ctime>
-#include <Windows.h>
+#include <vector>
+#include <algorithm>
 
 #define MAX_LOADSTRING 100
 #define MAX_GRID_COUNT 12
 #define TIMER_HOVER 1
+#define INTERVAL_TIMER_HOVER 50
 #define TIMER_GAMEINIT 2
+#define INTERVAL_TIMER_GAMEINIT 50
 #define TIMER_CHANGE_GRID 3
+#define INTERVAL_TIMER_CHANGE_GRID 500
+#define TIMER_PARTICLES 4
+#define INTERVAL_TIMER_PARTICLES 20
+
 
 //enum GameSize
 //{
 //    Small, Medium, Big
 //};
 //GameSize gameSize = GameSize::Small;
+
+typedef struct
+{
+    POINT position;
+    std::pair<double, double> direction;
+    COLORREF colour;
+} Particle;
 
 
 // Global Variables:
@@ -34,12 +48,17 @@ const unsigned int gridCount[] = { 8, 10, 12 }; // Stores handles to child windo
 //TODO change sizes
 const unsigned int gridSizes[] = { 70, 60, 50 }; // Posible sizes of elements
 const unsigned int MARGIN = 5; // Size of margin
-const unsigned int HOVER_INCREASE = 4;; // Size by which windows increase when hovered
+const unsigned int HOVER_INCREASE = 4; // Size by which windows increase when hovered
+const unsigned int PARTICLE_MOVE_DISTANCE = 10;
+const unsigned int PARTICLES_COUNT = 100;
+
 
 short gameSize = 0; // Saves current game size: 0 - small, 1 - medium, 2 - big
 bool gameStarted = false; // Flag indicating whether the game is in progress
 bool initializingGame = false; // Flag indicating whether the game is in statup initalization 
 bool changingGrid = false; // Flag indicating whether grid elements are moving
+int particleSize;
+std::vector<Particle> particles;
 
 
 // Forward declarations of functions included in this code module:
@@ -59,6 +78,8 @@ bool                ValidateMove(HWND selectedWindow, HWND validatedWindow);
 bool                AnalyseGrid();
 bool                ShouldDestroyGem(HWND hwnd);
 bool                MoveGrid(HWND hwnd);
+void                GenerateParticles(HWND mainHandle);
+void                RemoveParticles();
 COLORREF            FindColour(HWND hwnd);
 BOOL CALLBACK       EnumKillChild(_In_ HWND   hwnd, _In_ LPARAM lParam);
 
@@ -215,9 +236,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             break;
         }
         changingGrid = true;
+        GenerateParticles(hWnd);
+        SetTimer(overlayHandle, TIMER_PARTICLES, INTERVAL_TIMER_PARTICLES, NULL);
         InvalidateRect(hWnd, NULL, TRUE);
         UpdateWindow(hWnd);
-        SetTimer(hWnd, TIMER_CHANGE_GRID, 500, 0);
+        SetTimer(hWnd, TIMER_CHANGE_GRID, INTERVAL_TIMER_CHANGE_GRID, 0);
+        break;
     }
     case WM_SIZE:
     {
@@ -294,7 +318,7 @@ LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
             trmev.dwFlags = TME_CANCEL | TME_LEAVE;
             trmev.hwndTrack = hWnd;
             TrackMouseEvent(&trmev);
-            SetTimer(hWnd, TIMER_HOVER, 50, NULL);
+            SetTimer(hWnd, TIMER_HOVER, INTERVAL_TIMER_HOVER, NULL);
             break;
         }
         case WM_LBUTTONDOWN:
@@ -401,30 +425,50 @@ LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
 
 LRESULT CALLBACK OverlayWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-    switch (message)
+    switch (message)         
     {
+    case WM_TIMER:
+    {
+        if (wParam == TIMER_PARTICLES)
+        {
+            if (particles.size() == 0)
+                KillTimer(hWnd, TIMER_PARTICLES);
+            RemoveParticles();
+            InvalidateRect(overlayHandle, NULL, FALSE);
+            UpdateWindow(overlayHandle);
+            //particles.pop_back();
+        }
+        break;
+    }
     case WM_PAINT:
     {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
-        hdc = GetDC(hWnd);
         RECT rc;
         HBRUSH brush, oldbrush;
+
 
         brush = (HBRUSH)GetStockObject(DC_BRUSH);
         oldbrush = (HBRUSH)SelectObject(hdc, brush);
 
-        SetDCBrushColor(hdc, 0x000000);
         GetWindowRect(hWnd, &rc);
+        SetDCBrushColor(hdc, 0x000000);
         FillRect(hdc, &rc, (HBRUSH)GetCurrentObject(hdc, OBJ_BRUSH));
 
-        SetDCBrushColor(hdc, 0xFFFA3D);
+        std::wstring text{L"Particles:"};
+        text += std::to_wstring(particles.size());
+        DrawTextW(hdc, text.c_str(), -1, &rc, DT_CENTER | DT_SINGLELINE);
+        for (auto& particle : particles)
+        {
+            SetDCBrushColor(hdc, particle.colour);
+            particle.position.x += PARTICLE_MOVE_DISTANCE * particle.direction.first;
+            particle.position.y += PARTICLE_MOVE_DISTANCE * particle.direction.second;
+            Rectangle(hdc, particle.position.x, particle.position.y, particle.position.x + particleSize, particle.position.y + particleSize);
+        }
 
-        DrawTextW(hdc, L"POINTS", -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-        Rectangle(hdc, 200, 200, 300, 300);
         brush = (HBRUSH)SelectObject(hdc, oldbrush);
         DeleteObject(brush);
+
         EndPaint(hWnd, &ps);
         break;
     }
@@ -449,6 +493,9 @@ LRESULT CALLBACK OverlayWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
 void ResizeWindow(HWND mainHandle)
 {
     gameStarted = initializingGame = false;
+    //particleSize = gridSizes[gameSize] / pow(PARTICLES_COUNT, 0.5);
+    particleSize = 10;
+    particles.clear();
     int maxWidth = GetSystemMetrics(SM_CXSCREEN);
     int maxHeight = GetSystemMetrics(SM_CYSCREEN);
     int size = gridCount[gameSize] * (gridSizes[gameSize] + 2 * MARGIN);
@@ -530,7 +577,7 @@ void InitGame(HWND mainHandle)
             InvalidateRect(mainHandle, NULL, TRUE);
         }
     }
-    SetTimer(mainHandle, TIMER_GAMEINIT, 50, NULL);
+    SetTimer(mainHandle, TIMER_GAMEINIT, INTERVAL_TIMER_GAMEINIT, NULL);
     gameStarted = initializingGame  = true;
 }
 
@@ -653,6 +700,60 @@ bool MoveGrid(HWND hwnd)
         grid[0][i].second = colours[rand() % (sizeof(colours) / sizeof(COLORREF))];
     }
     return foundAny;
+}
+
+
+POINT GetElementPosition(int idx, int idy)
+{
+    int x, y;
+    x = MARGIN + idy * (gridSizes[gameSize] + 2 * MARGIN);
+    y = MARGIN + idx * (gridSizes[gameSize] + 2 * MARGIN);
+    return POINT{ x, y };
+}
+
+
+void GenerateParticles(HWND mainHandle)
+{
+    srand(time(NULL));
+    bool foundAny = false;
+    for (size_t i = 0; i < gridCount[gameSize]; i++)
+        for (size_t j = 0; j < gridCount[gameSize]; j++)
+        {
+            if (gemsToDestroy[i][j])
+            {
+                POINT elmPos = GetElementPosition(i, j);
+                MapWindowPoints(mainHandle, overlayHandle, &elmPos, 1);
+                for (int k = 0; k < pow(PARTICLES_COUNT, 0.5); k++)
+                {
+                    for (int l = 0; l < pow(PARTICLES_COUNT, 0.5); l++)
+                    {
+                        //double x =  1 - ((double)rand()) / RAND_MAX * 2;
+                        //double y = pow(1 - pow(x, 2), 0.5);
+                        double x = 1;
+                        double y = 0;
+                        particles.push_back(Particle
+                            {
+                                POINT{elmPos.x + l * particleSize, elmPos.y + k * particleSize},
+                                std::make_pair(x, y),
+                                grid[i][j].second
+                            });
+                    }
+                }
+            }
+        }
+}
+
+
+void RemoveParticles()
+{
+    int maxWidth = GetSystemMetrics(SM_CXSCREEN);
+    int maxHeight = GetSystemMetrics(SM_CYSCREEN);
+    auto endIt = std::remove_if(particles.begin(), particles.end(), [&](Particle particle) 
+        {
+            return particle.position.x < 0 || particle.position.y < 0 ||
+                particle.position.x > maxWidth || particle.position.y > maxHeight;
+        });
+    particles.resize(endIt - particles.begin());
 }
 
 
